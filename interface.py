@@ -131,4 +131,5 @@ def getCostExplanation(query):
     print(query)
     return "some explanation"
 
+# function call to kick off the entire flow
 create_login_screen()
