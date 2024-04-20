@@ -1208,54 +1208,54 @@ def get_no_of_tuples_and_blocks(connection, table_name):
     return table_tuples, table_blocks
 
 
-# Establish a connection to the database
-conn = psycopg2.connect(
-    dbname="TPC-H",
-    user="postgres",
-    password="root",
-    host="localhost",
-    port="5432"
-)
-
-# Create a cursor object to execute SQL queries
-cur = conn.cursor()
-
-# Disable parallel query execution
-query = """
-SET max_parallel_workers_per_gather = 0;
-"""
-
-cur.execute(query)
-
-# Enter query here
-query = """
-select
-      n_name,
-      sum(l_extendedprice * (1 - l_discount)) as revenue
-    from
-      customer,
-      orders,
-      lineitem,
-      supplier,
-      nation,
-      region
-    where
-      c_custkey = o_custkey
-      and l_orderkey = o_orderkey
-      and l_suppkey = s_suppkey
-      and c_nationkey = s_nationkey
-      and s_nationkey = n_nationkey
-      and n_regionkey = r_regionkey
-      and r_name = 'ASIA'
-      and o_orderdate >= '1994-01-01'
-      and o_orderdate < '1995-01-01'
-      and c_acctbal > 10
-      and s_acctbal > 20
-    group by
-      n_name
-    order by
-      revenue desc;
-"""
+# # Establish a connection to the database
+# conn = psycopg2.connect(
+#     dbname="TPC-H",
+#     user="postgres",
+#     password="root",
+#     host="localhost",
+#     port="5432"
+# )
+#
+# # Create a cursor object to execute SQL queries
+# cur = conn.cursor()
+#
+# # Disable parallel query execution
+# query = """
+# SET max_parallel_workers_per_gather = 0;
+# """
+#
+# cur.execute(query)
+#
+# # Enter query here
+# query = """
+# select
+#       n_name,
+#       sum(l_extendedprice * (1 - l_discount)) as revenue
+#     from
+#       customer,
+#       orders,
+#       lineitem,
+#       supplier,
+#       nation,
+#       region
+#     where
+#       c_custkey = o_custkey
+#       and l_orderkey = o_orderkey
+#       and l_suppkey = s_suppkey
+#       and c_nationkey = s_nationkey
+#       and s_nationkey = n_nationkey
+#       and n_regionkey = r_regionkey
+#       and r_name = 'ASIA'
+#       and o_orderdate >= '1994-01-01'
+#       and o_orderdate < '1995-01-01'
+#       and c_acctbal > 10
+#       and s_acctbal > 20
+#     group by
+#       n_name
+#     order by
+#       revenue desc;
+# """
 
 # query = """
 # select * from customer
@@ -1268,35 +1268,35 @@ select
 # cur.execute(query)
 
 # Execute EXPLAIN statement to get QEP
-explain_query = "EXPLAIN (FORMAT JSON) " + query
-cur.execute(explain_query)
-
-# Fetch and print the QEP
-qep_result = cur.fetchone()
-print("Query Execution Plan (QEP):")
-print(qep_result[0])
-
-# Build the query plan tree
-root_node = build_query_plan_tree(qep_result[0][0])
-
-# Print the query plan tree
-# print_query_plan_tree(root_node)
-
-query_plan_string = get_query_plan_tree(root_node)
-print(query_plan_string)
-
-# Store query plan results in a json file
-with open('queryplan.json', 'w') as f:
-    json.dump(qep_result[0], f)
-
-# Calculate the costs and generate the explanations for each node in the query plan tree
-calculate_cost(conn, root_node)
-
-cost_string = get_costs_info(root_node)
-print(cost_string)
-
-explanation_string = get_cost_explanation(root_node)
-print(explanation_string)
+# explain_query = "EXPLAIN (FORMAT JSON) " + query
+# cur.execute(explain_query)
+#
+# # Fetch and print the QEP
+# qep_result = cur.fetchone()
+# print("Query Execution Plan (QEP):")
+# print(qep_result[0])
+#
+# # Build the query plan tree
+# root_node = build_query_plan_tree(qep_result[0][0])
+#
+# # Print the query plan tree
+# # print_query_plan_tree(root_node)
+#
+# query_plan_string = get_query_plan_tree(root_node)
+# print(query_plan_string)
+#
+# # Store query plan results in a json file
+# with open('queryplan.json', 'w') as f:
+#     json.dump(qep_result[0], f)
+#
+# # Calculate the costs and generate the explanations for each node in the query plan tree
+# calculate_cost(conn, root_node)
+#
+# cost_string = get_costs_info(root_node)
+# print(cost_string)
+#
+# explanation_string = get_cost_explanation(root_node)
+# print(explanation_string)
 
 
 # TODO: Merging with frontend
@@ -1332,11 +1332,11 @@ def explain_query(connection, query):
 
     # Turn off parallel query execution
     # Disable parallel query execution
-    query = """
-    SET max_parallel_workers_per_gather = 0;
+    set_query = """
+SET max_parallel_workers_per_gather = 0;
     """
 
-    cur.execute(query)
+    cur.execute(set_query)
 
     # Execute EXPLAIN statement to get QEP
     explain_query = "EXPLAIN (FORMAT JSON) " + query
@@ -1356,17 +1356,17 @@ def explain_query(connection, query):
 
     # Return the query plan tree
     query_plan_tree_string = get_query_plan_tree(root_node)
-    output_array[0] = query_plan_tree_string
+    output_array.append(query_plan_tree_string)
 
     # 2. Format Actual vs Calculated Cost string
     calculate_cost(connection, root_node)
 
     cost_string = get_costs_info(root_node)
-    output_array[1] = cost_string
+    output_array.append(cost_string)
 
     # 3. Format Cost Explanation string
     explanation_string = get_cost_explanation(root_node)
-    output_array[2] = explanation_string
+    output_array.append(explanation_string)
 
     return output_array
 
@@ -1378,6 +1378,6 @@ def explain_query(connection, query):
 # for row in results:
 #     print(row)
 
-# Close the cursor and connection
-cur.close()
-conn.close()
+# # Close the cursor and connection
+# cur.close()
+# conn.close()

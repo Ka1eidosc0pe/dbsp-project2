@@ -98,6 +98,8 @@ def clickCalculate():
 
     explainOutputArray = explain_query(connectObj, query)
 
+    print(explainOutputArray)
+
     #qep = getQEP(query)
     #cost = getEstimatedCost(query)
     #explanation = getCostExplanation(query)
