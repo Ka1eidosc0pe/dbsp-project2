@@ -96,9 +96,15 @@ def create_main_screen():
 def clickCalculate():
     query = query_text.get("1.0", "end-1c")
 
-    qep = getQEP(query)
-    cost = getEstimatedCost(query)
-    explanation = getCostExplanation(query)
+    explainOutputArray = explain_query(connectObj, query)
+
+    #qep = getQEP(query)
+    #cost = getEstimatedCost(query)
+    #explanation = getCostExplanation(query)
+
+    qep = explainOutputArray[0]
+    cost = explainOutputArray[1]
+    explanation = explainOutputArray[2]
 
     qep_display.delete("1.0", tk.END)
     qep_display.insert(tk.END, qep)
