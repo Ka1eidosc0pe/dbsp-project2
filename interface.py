@@ -1,26 +1,33 @@
 import tkinter as tk
 from tkinter import messagebox
+from explain import connect_to_database, explain_query
 
 # This is just a placeholder, will actually call the login function provided by JH, wherever this is called. We're just handing him the variables for login.
-def attemptLogin(success):
-    if (success):
-        print("Login successful!")
-        return True
-    else:
-        print("Login unsuccessful")
-        return False
+# def attemptLogin(success):
+#     if (success):
+#         print("Login successful!")
+#         return True
+#     else:
+#         print("Login unsuccessful")
+#         return False
 
 # this is the function that will get executed when the login button is filled, we're not doing any validation checking as of yet. Needed? Get group advice.
 def clickLogin():
+    global connectObj
+
     host = host_entry.get()
     port = port_entry.get()
     db = db_entry.get()
     username = username_entry.get()
     password = password_entry.get()
 
-    loginVar = True # this is only temporary, get rid of when using actual login process
+    #loginVar = True # this is only temporary, get rid of when using actual login process
 
-    if (attemptLogin(loginVar)):
+    loginTuple = connect_to_database(host, port, db, username, password)
+    loginSuccess = loginTuple[0]
+    connectObj = loginTuple[1]
+
+    if (loginSuccess):
         login_window.destroy()
         create_main_screen()
     else:
