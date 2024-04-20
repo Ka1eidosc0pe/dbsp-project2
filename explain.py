@@ -1223,7 +1223,6 @@ cur = conn.cursor()
 # Disable parallel query execution
 query = """
 SET max_parallel_workers_per_gather = 0;
-SET enable_seqscan = OFF;
 """
 
 cur.execute(query)
@@ -1330,6 +1329,14 @@ def explain_query(connection, query):
 
     # Using the connection and query, get the QEP from the database
     cur = connection.cursor()
+
+    # Turn off parallel query execution
+    # Disable parallel query execution
+    query = """
+    SET max_parallel_workers_per_gather = 0;
+    """
+
+    cur.execute(query)
 
     # Execute EXPLAIN statement to get QEP
     explain_query = "EXPLAIN (FORMAT JSON) " + query
