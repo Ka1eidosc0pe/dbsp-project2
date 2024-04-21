@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import messagebox
-from explain import connect_to_database, explain_query
+from explain import connect_to_database, explain_query, reset_values
 
 # This is just a placeholder, will actually call the login function provided by JH, wherever this is called. We're just handing him the variables for login.
 # def attemptLogin(success):
@@ -154,6 +154,9 @@ def clickCalculate():
 
 
 def clickReset():
+
+    # Reset node numbers in explain module
+    reset_values()
 
     # enable the text fields so that they can be cleared
     qep_display.config(state = "normal")

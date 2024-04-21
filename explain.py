@@ -110,6 +110,8 @@ def calculate_cost(connection, node):
                 compute_index_only_scan_cost(connection, node)
             case 'Bitmap Index Scan':
                 compute_bitmap_index_scan_cost(connection, node)
+            case _:
+                compute_unknown_cost(node)
 
     # If the node is not a leaf node, then recursively call calculate_cost on each child node until we reach a leaf node
     # All nodes on the outer loop will be processed first
@@ -140,6 +142,25 @@ def calculate_cost(connection, node):
                 compute_materialize_cost(connection, node)
             case 'Memoize':
                 compute_memoize_cost(connection, node)
+            case 'BitmapAnd' | 'BitmapOr':
+                compute_bitmapand_bitmapor_cost(connection, node)
+            case _:
+                compute_unknown_cost(node)
+
+
+# Default functions, if the application encounters any node that it has no cost estimation function for
+def compute_unknown_cost(node):
+    if node.is_leaf:
+        node.calculated_cost = 0.0
+        node.calculation_explain = f"""
+        This node {node.node_type} has no available cost estimation function.
+        """
+    else:
+        for child in node.children:
+            node.calculated_cost += child.total_cost
+        node.calculation_explain = f"""
+        This node {node.node_type} has no available cost estimation function.
+        """
 
 
 # Functions to estimate cost of scan nodes
@@ -171,7 +192,7 @@ def compute_seq_scan_cost(connection, node):
         # Then calculate the cost
         node.calculated_cost = (no_blocks * seq_page_cost) + (no_tuples * cpu_tuple_cost) + (
                     (no_tuples * cpu_operator_cost) * filter_condition_count)
-        if abs(node.total_cost - node.calculated_cost) <= 100:
+        if check_accuracy(node.calculated_cost, node.total_cost):
             node.calculation_explain = f"""
         The database performs sequential scan on the {node.relation_name} table.
 
@@ -191,7 +212,7 @@ def compute_seq_scan_cost(connection, node):
                         """
     else:
         node.calculated_cost = (no_blocks * seq_page_cost) + (no_tuples * cpu_tuple_cost)
-        if abs(node.total_cost - node.calculated_cost) <= 100:
+        if check_accuracy(node.calculated_cost, node.total_cost):
             node.calculation_explain = f"""
         The database performs sequential scan on the {node.relation_name} table.
 
@@ -277,7 +298,7 @@ def compute_index_scan_cost(connection, node):
 
         First, the database fetches the corresponding index pages that hold the tuples that match the index condition. The number of index pages fetched is {index_blocks_selected}, which is estimated based on the selectivity.
 
-        The cost for accessing each index page is random, so the cost of fetching the index pages is: no. of index pages selected * random_page_cost
+        The cost for accessing each index page is random, so the cost of fetching the index pages is: no. of index pages selected * random_page_cost.
 
         There is an additional CPU processing cost added for processing the index tuples fetched.
 
@@ -658,6 +679,25 @@ def extract_correlation(connection, relation_name, attr_name):
 
     return results
 
+# TODO: code out bitmap_and and bitmap_or
+def compute_bitmapand_bitmapor_cost(connection, node):
+
+    # Get the cost of both child nodes and add them together
+    outer_cost = node.children[0].total_cost
+    inner_cost = node.children[1].total_cost
+
+    node.calculated_cost = outer_cost + inner_cost
+
+    node.calculation_explain = f"""
+        BitmapAnd and BitmapOr nodes has two children, with both being Bitmap Index Scans.
+        
+        The resulting bitmaps from both bitmap index scans are ANDed or ORed together.
+        
+        Since this operation is done in main memory, the cost is just the sum of the costs of both child nodes.
+        
+        Cost of outer bitmap index scan: {node.children[0].total_cost}
+        Cost of inner bitmap index scan: {node.children[1].total_cost}
+    """
 
 def compute_bitmap_index_scan_cost(connection, node):
     # 1. Get necessary statistics and parameter values from the database
@@ -893,9 +933,6 @@ def compute_hash_join_cost(connection, node):
     outer_cost = node.children[0].total_cost
     inner_cost = node.children[1].total_cost
 
-    print(inner_cost)
-
-    # TODO: Confirm hash join formula
     # Calculate hash join cost
     node.calculated_cost = inner_cost + outer_cost + (inner_rows * cpu_operator_cost) + (inner_rows * cpu_tuple_cost) + (
                 outer_rows * cpu_operator_cost) + (cpu_operator_cost * inner_rows * outer_rows * selectivity) + (cpu_tuple_cost * node.plan_rows)
@@ -903,9 +940,12 @@ def compute_hash_join_cost(connection, node):
     print("Actual cost for node " + node.node_type + ": " + str(node.total_cost))
     print("Calculated cost for node " + node.node_type + ": " + str(node.calculated_cost))
 
+    hash_node = node.children[1]
+    hash_node_child = hash_node.children[0]
+
     if check_accuracy(node.calculated_cost, node.total_cost):
         node.calculation_explain = f"""
-        The database performs a Hash on table <relation_name> and performs a Hash join on table <relation_name> under condition {node.hash_cond}.
+        The database performs a Hash on the output of {hash_node_child.node_type} and performs a Hash join on the output of {node.children[0].node_type} under condition {node.hash_cond}.
 
         It takes the cost of Hash node which is the cost to build the hash table from inner relation by reading the tuples {inner_rows} Then it takes the CPU cost of processing these tuples by taking {cpu_operator_cost} and {cpu_tuple_cost}.
 
@@ -918,7 +958,7 @@ def compute_hash_join_cost(connection, node):
         """
     else:
         node.calculation_explain = f"""
-        The database performs a Hash on table <relation_name> and performs a Hash join on table <relation_name> under condition {node.hash_cond}.
+        The database performs a Hash on the output of {hash_node_child.node_type} and performs a Hash join on the output of {node.children[0].node_type} under condition {node.hash_cond}.
 
         It takes the cost of Hash node which is the cost to build the hash table from inner relation by reading the tuples {inner_rows} Then it takes the CPU cost of processing these tuples by taking {cpu_operator_cost} and {cpu_tuple_cost}.
 
@@ -956,19 +996,18 @@ def compute_hash_semi_join_cost(connection, node):
     outer_cost = node.children[0].total_cost
     inner_cost = node.children[1].total_cost
 
-    print(inner_cost)
+    hash_node = node.children[1]
+    hash_node_child = hash_node.children[0]
 
     # Calculate hash join cost
-    node.calculated_cost = inner_cost + outer_cost + (inner_rows * cpu_operator_cost) + (
-                outer_rows * cpu_operator_cost) + (cpu_operator_cost * inner_rows * outer_rows * selectivity) + (
-                                       cpu_tuple_cost * node.plan_rows)
+    node.calculated_cost = inner_cost + outer_cost + (inner_rows * cpu_operator_cost) + (inner_rows * cpu_tuple_cost) + (outer_rows * cpu_operator_cost) + (cpu_operator_cost * inner_rows * outer_rows * selectivity) + (cpu_tuple_cost * node.plan_rows)
 
     print("Actual cost for node " + node.node_type + ": " + str(node.total_cost))
     print("Calculated cost for node " + node.node_type + ": " + str(node.calculated_cost))
 
     if check_accuracy(node.calculated_cost, node.total_cost):
         node.calculation_explain = f"""
-        The database performs a Hash on table <relation_name> and performs a Hash join on table <relation_name> under condition {node.hash_cond}.
+        The database performs a Hash on the output of {hash_node_child.node_type} and performs a Hash join on the output of {node.children[0].node_type} under condition {node.hash_cond}.
 
         It takes the cost of Hash node which is the cost to build the hash table from inner relation by reading the tuples {inner_rows} Then it takes the CPU cost of processing these tuples by taking {cpu_operator_cost} and {cpu_tuple_cost}.
 
@@ -980,7 +1019,7 @@ def compute_hash_semi_join_cost(connection, node):
         """
     else:
         node.calculation_explain = f"""
-        The database performs a Hash on table <relation_name> and performs a Hash join on table <relation_name> under condition {node.hash_cond}.
+        The database performs a Hash on the output of {hash_node_child.node_type} and performs a Hash join on the output of {node.children[0].node_type} under condition {node.hash_cond}.
 
         It takes the cost of Hash node which is the cost to build the hash table from inner relation by reading the tuples {inner_rows} Then it takes the CPU cost of processing these tuples by taking {cpu_operator_cost} and {cpu_tuple_cost}.
 
@@ -1021,11 +1060,13 @@ def compute_merge_join_cost(connection, node):
     print("Calculated cost for node " + node.node_type + ": " + str(node.calculated_cost))
 
     node.calculation_explain = f"""
-        The database does a merge join on <relation_name1> and <relation_name2>.
+        The database does a merge join on the outputs of its child nodes, {node.children[0].node_type} and {node.children[1].node_type}.
 
-        It scans all <no_of_tuples> tuples of <relation_name1>  and <relation_name2> one by one. Then, the CPU processes the two relations to join rows that satisfy the given condition. 
+        It scans all {outer_rows} tuples of the output of the outer node one at a time and searches the tuples of the output of the inner node for matching tuples. 
+        
+        Then, the CPU processes the two relations to join rows that satisfy the given condition. 
 
-        Cost: cost of scanning index node (of A) + cost of scanning index node (of B) + cpu_tuple_cost*(no_of_tuples_A) + cpu_operator_cost*(no_of_tuples_A + no_of_tuples_B).
+        Cost: cost of outer node + cost of inner node + cpu_tuple_cost * no_of_tuples_of_inner_node + cpu_operator_cost * (no_of_tuples_of_inner_node + no_of_tuples_of_outer_node).
     """
 
 
@@ -1117,7 +1158,7 @@ def compute_sort_cost(connection, node):
 
         It takes the startup sorting cost similar to quick sort where it involves the total cost of the child node and comparison operations cost. A multiplier of 2 is applied to cpu operator cost to suggest that comparisons during sorting are more expensive than other CPU operations. Since the complexity of sorting n values is O (n log n) with base of 2. This is implemented in our calculation.
 
-        It then processes each row of sort node by taking cpu operator cost for each resultant row {node.plan.rows}
+        It then processes each row of sort node by taking cpu operator cost for each resultant row {node.plan_rows}
 
         External merge sort takes into account the estimated cost of performing I/O operations for reading and writing during the sort. Our calculation involves the mix of sequential and random page access costs assumed to 75% and 25% respectively. This is multiplied by the number of blocks of relation since merge sort involves read and write at least twice.
 
@@ -1130,7 +1171,7 @@ def compute_sort_cost(connection, node):
 
         It takes the startup sorting cost similar to quick sort where it involves the total cost of the child node and comparison operations cost. A multiplier of 2 is applied to cpu operator cost to suggest that comparisons during sorting are more expensive than other CPU operations. Since the complexity of sorting n values is O (n log n) with base of 2. This is implemented in our calculation.
 
-        It then processes each row of sort node by taking cpu operator cost for each resultant row {node.plan.rows}
+        It then processes each row of sort node by taking cpu operator cost for each resultant row {node.plan_rows}
 
         External merge sort takes into account the estimated cost of performing I/O operations for reading and writing during the sort. Our calculation involves the mix of sequential and random page access costs assumed to 75% and 25% respectively. This is multiplied by the number of blocks of relation since merge sort involves read and write at least twice.
 
@@ -1140,7 +1181,7 @@ def compute_sort_cost(connection, node):
             """
 
 
-# TODO: Code out compute aggregate cost
+
 def compute_aggregate_cost(connection, node):
     cursor = connection.cursor()
     # Get random_page_cost, cpu_index_tuple_cost, cpu_operator_cost, seq_page_cost and cpu_tuple_cost
@@ -1247,99 +1288,7 @@ def get_no_of_tuples_and_blocks(connection, table_name):
     return table_tuples, table_blocks
 
 
-# # Establish a connection to the database
-# conn = psycopg2.connect(
-#     dbname="TPC-H",
-#     user="postgres",
-#     password="root",
-#     host="localhost",
-#     port="5432"
-# )
-#
-# # Create a cursor object to execute SQL queries
-# cur = conn.cursor()
-#
-# # Disable parallel query execution
-# query = """
-# SET max_parallel_workers_per_gather = 0;
-# """
-#
-# cur.execute(query)
-#
-# # Enter query here
-# query = """
-# select
-#       n_name,
-#       sum(l_extendedprice * (1 - l_discount)) as revenue
-#     from
-#       customer,
-#       orders,
-#       lineitem,
-#       supplier,
-#       nation,
-#       region
-#     where
-#       c_custkey = o_custkey
-#       and l_orderkey = o_orderkey
-#       and l_suppkey = s_suppkey
-#       and c_nationkey = s_nationkey
-#       and s_nationkey = n_nationkey
-#       and n_regionkey = r_regionkey
-#       and r_name = 'ASIA'
-#       and o_orderdate >= '1994-01-01'
-#       and o_orderdate < '1995-01-01'
-#       and c_acctbal > 10
-#       and s_acctbal > 20
-#     group by
-#       n_name
-#     order by
-#       revenue desc;
-# """
-
-# query = """
-# select * from customer
-#  join nation on customer.c_nationkey = nation.n_nationkey
-#  order by nation.n_nationkey;
-# """
-
-
-# Execute the query
-# cur.execute(query)
-
-# Execute EXPLAIN statement to get QEP
-# explain_query = "EXPLAIN (FORMAT JSON) " + query
-# cur.execute(explain_query)
-#
-# # Fetch and print the QEP
-# qep_result = cur.fetchone()
-# print("Query Execution Plan (QEP):")
-# print(qep_result[0])
-#
-# # Build the query plan tree
-# root_node = build_query_plan_tree(qep_result[0][0])
-#
-# # Print the query plan tree
-# # print_query_plan_tree(root_node)
-#
-# query_plan_string = get_query_plan_tree(root_node)
-# print(query_plan_string)
-#
-# # Store query plan results in a json file
-# with open('queryplan.json', 'w') as f:
-#     json.dump(qep_result[0], f)
-#
-# # Calculate the costs and generate the explanations for each node in the query plan tree
-# calculate_cost(conn, root_node)
-#
-# cost_string = get_costs_info(root_node)
-# print(cost_string)
-#
-# explanation_string = get_cost_explanation(root_node)
-# print(explanation_string)
-
-
-# TODO: Merging with frontend
-# TODO: Function that takes in the 5 arguments for login and returns true or false depending on login status
+# Function that takes in the 5 arguments for login and returns true or false depending on login status
 # Host, Port, Database, Username, Password
 def connect_to_database(host, port, database, username, password):
     try:
@@ -1359,7 +1308,7 @@ def connect_to_database(host, port, database, username, password):
         return False, None
 
 
-# TODO: Function that takes in query string, and return one array of three strings
+# Function that takes in query string, and return one array of three strings
 # 1. QEP Tree
 # 2. Actual vs Calculated Cost
 # 3. Cost Explanation
@@ -1369,11 +1318,17 @@ def explain_query(connection, query):
     # Using the connection and query, get the QEP from the database
     cur = connection.cursor()
 
-    # Turn off parallel query execution
     # Disable parallel query execution
+    # If necessary, add any SET statements here or any statements to change settings of the database for testing
     set_query = """
 SET max_parallel_workers_per_gather = 0;
     """
+
+    # Example: if it is necessary to enable merge join:
+    # set_query = """
+    # SET max_parallel_workers_per_gather = 0;
+    # SET enable_mergejoin = ON;
+    #     """
 
     cur.execute(set_query)
 
@@ -1410,13 +1365,8 @@ SET max_parallel_workers_per_gather = 0;
     return output_array
 
 
-# Fetch the results
-# results = cur.fetchall()
-
-# Print the results
-# for row in results:
-#     print(row)
-
-# # Close the cursor and connection
-# cur.close()
-# conn.close()
+def reset_values():
+    global node_number
+    global explanation_node_number
+    node_number = 1
+    explanation_node_number = 1
