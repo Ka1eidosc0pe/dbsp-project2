@@ -39,6 +39,7 @@ def create_login_screen():
     
     login_window = tk.Tk()
     login_window.title("Login")
+    login_window.geometry('520x300')
 
     tk.Label(login_window, text = "Host: ").grid(row = 0, column = 0)
     host_entry = tk.Entry(login_window)
@@ -57,7 +58,7 @@ def create_login_screen():
     username_entry.grid(row = 3, column = 1)
 
     tk.Label(login_window, text = "Password: ").grid(row = 4, column = 0)
-    password_entry = tk.Entry(login_window)
+    password_entry = tk.Entry(login_window, show = "*")
     password_entry.grid(row = 4, column = 1)
 
     login_button = tk.Button(login_window, text = "Login", command = clickLogin)
@@ -70,22 +71,30 @@ def create_main_screen():
     global main_window, query_text, qep_display, cost_display, explanation_display
 
     main_window = tk.Tk()
-    main_window.title("Main Screen")
+    main_window.title("Group 21 - Magic Cost Estimator")
+    main_window.geometry("2080x1400")
 
-    query_text = tk.Text(main_window, height = 5, width = 50)
-    query_text.pack()
+    tk.Label(main_window, text = "Query").pack()
+    query_text = tk.Text(main_window, height = 20, width = 150, highlightbackground = "black", highlightcolor = "blue")
+    query_text.pack(pady = 5)
 
     calculate_button = tk.Button(main_window, text = "Calculate", command = clickCalculate)
-    calculate_button.pack()
+    calculate_button.pack(pady = 15)
 
-    qep_display = tk.Text(main_window, height = 5, width = 50)
-    qep_display.pack()
+    tk.Label(main_window, text = "QEP Tree").pack()
+    qep_display = tk.Text(main_window, height = 20, width = 150, highlightbackground = "black")
+    qep_display.pack(pady = 10)
+    qep_display.config(state = "disabled")
 
-    cost_display = tk.Text(main_window, height = 5, width = 50)
-    cost_display.pack()
+    tk.Label(main_window, text = "Cost").pack(pady = 5)
+    cost_display = tk.Text(main_window, height = 20, width = 150, highlightbackground = "black")
+    cost_display.pack(pady = 10)
+    cost_display.config(state = "disabled")
 
-    explanation_display = tk.Text(main_window, height = 5, width = 50)
-    explanation_display.pack()
+    tk.Label(main_window, text = "Explanation").pack(pady = 5)
+    explanation_display = tk.Text(main_window, height = 20, width = 150, highlightbackground = "black")
+    explanation_display.pack(pady = 15)
+    explanation_display.config(state = "disabled")
 
     reset_button = tk.Button(main_window, text = "Reset", command = clickReset)
     reset_button.pack()
@@ -94,6 +103,12 @@ def create_main_screen():
 
 
 def clickCalculate():
+
+    # enable the text fields so that they can be populated
+    qep_display.config(state = "normal")
+    cost_display.config(state = "normal")
+    explanation_display.config(state = "normal")
+
     query = query_text.get("1.0", "end-1c")
 
     explainOutputArray = explain_query(connectObj, query)
@@ -115,18 +130,34 @@ def clickCalculate():
     explanation_display.delete("1.0", tk.END)
     explanation_display.insert(tk.END, explanation)
 
+    # disable text fields so cannot be edited after population
+    qep_display.config(state = "disabled")
+    cost_display.config(state = "disabled")
+    explanation_display.config(state = "disabled")
+
 
 def clickReset():
+
+    # enable the text fields so that they can be cleared
+    qep_display.config(state = "normal")
+    cost_display.config(state = "normal")
+    explanation_display.config(state = "normal")
+
     query_text.delete("1.0", tk.END)
 
     qep_display.delete("1.0", tk.END)
-    qep_display.insert(tk.END, "Loading...")
+    # qep_display.insert(tk.END, "Loading...")
 
     cost_display.delete("1.0", tk.END)
-    cost_display.insert(tk.END, "Loading...")
+    # cost_display.insert(tk.END, "Loading...")
 
     explanation_display.delete("1.0", tk.END)
-    explanation_display.insert(tk.END, "Loading...")
+    # explanation_display.insert(tk.END, "Loading...")
+
+    # disable text fields so cannot be edited after clearing
+    qep_display.config(state = "disabled")
+    cost_display.config(state = "disabled")
+    explanation_display.config(state = "disabled")
 
 
 # this is just a placeholder function for testing, in reality, a call to explain.py will be made which will provide the real value
