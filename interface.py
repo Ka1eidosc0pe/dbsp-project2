@@ -72,32 +72,49 @@ def create_main_screen():
 
     main_window = tk.Tk()
     main_window.title("Group 21 - Magic Cost Estimator")
-    main_window.geometry("2080x1400")
+    main_window.geometry("1200x1400")
 
-    tk.Label(main_window, text = "Query").pack()
-    query_text = tk.Text(main_window, height = 20, width = 150, highlightbackground = "black", highlightcolor = "blue")
-    query_text.pack(pady = 5)
+    canvas = tk.Canvas(main_window)
+    scrollbar = tk.Scrollbar(main_window, orient = "vertical", command = canvas.yview)
+    scrollable_frame = tk.Frame(canvas)
 
-    calculate_button = tk.Button(main_window, text = "Calculate", command = clickCalculate)
+    scrollable_frame.bind(
+        "<Configure>",
+        lambda e: canvas.configure(
+            scrollregion = canvas.bbox("all")
+        )
+    )
+
+    canvas.create_window((0, 0), window = scrollable_frame, anchor = "nw")
+    canvas.configure(yscrollcommand = scrollbar.set)
+
+    tk.Label(scrollable_frame, text = "Query").pack()
+    query_text = tk.Text(scrollable_frame, height = 20, width = 150, highlightbackground = "black", highlightcolor = "blue")
+    query_text.pack(padx = 10, pady = 5, expand = True)
+
+    calculate_button = tk.Button(scrollable_frame, text = "Calculate", command = clickCalculate)
     calculate_button.pack(pady = 15)
 
-    tk.Label(main_window, text = "QEP Tree").pack()
-    qep_display = tk.Text(main_window, height = 20, width = 150, highlightbackground = "black")
+    tk.Label(scrollable_frame, text = "QEP Tree").pack()
+    qep_display = tk.Text(scrollable_frame, height = 20, width = 150, highlightbackground = "black")
     qep_display.pack(pady = 10)
     qep_display.config(state = "disabled")
 
-    tk.Label(main_window, text = "Cost").pack(pady = 5)
-    cost_display = tk.Text(main_window, height = 20, width = 150, highlightbackground = "black")
+    tk.Label(scrollable_frame, text = "Cost").pack(pady = 5)
+    cost_display = tk.Text(scrollable_frame, height = 20, width = 150, highlightbackground = "black")
     cost_display.pack(pady = 10)
     cost_display.config(state = "disabled")
 
-    tk.Label(main_window, text = "Explanation").pack(pady = 5)
-    explanation_display = tk.Text(main_window, height = 20, width = 150, highlightbackground = "black")
+    tk.Label(scrollable_frame, text = "Explanation").pack(pady = 5)
+    explanation_display = tk.Text(scrollable_frame, height = 20, width = 150, highlightbackground = "black")
     explanation_display.pack(pady = 15)
     explanation_display.config(state = "disabled")
 
-    reset_button = tk.Button(main_window, text = "Reset", command = clickReset)
+    reset_button = tk.Button(scrollable_frame, text = "Reset", command = clickReset)
     reset_button.pack()
+
+    canvas.pack(side = "left", fill = "both", expand = True)
+    scrollbar.pack(side = "right", fill = "y")
 
     main_window.mainloop()
 
