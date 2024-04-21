@@ -284,9 +284,7 @@ def compute_index_scan_cost(connection, node):
         Next, the database needs to fetch the necessary data blocks. These data blocks are pointed to by the index tuples fetched from the index.
 
     """
-
-    if correlation >= 0.5:
-        # Use best case formula
+    if not (node.index_cond):
         table_page_fetch_cost = (table_blocks_selected * seq_page_cost) + (table_tuples_selected * cpu_tuple_cost)
         correlation_explanation = f"""
         Since correlation is {correlation}, which is more than 0.5, we assume that the relation is a clustered relation. 
@@ -294,18 +292,28 @@ def compute_index_scan_cost(connection, node):
         This means that the table pages are fetched in sequential order, so the cost is: no. of data blocks retrieved * seq_page_cost
 
         Additional CPU processing time is added to process all the tuples fetched from the data blocks. 
-        """
+                    """
+    elif abs(correlation) >= 0.5:
+        # Use best case formula
+        table_page_fetch_cost = (table_blocks_selected * seq_page_cost) + (table_tuples_selected * cpu_tuple_cost)
+        correlation_explanation = f"""
+        Since correlation of attribute {condition_array[0][0]} is {correlation}, which is more than 0.5 or less than -0.5, we assume that the relation is a clustered relation. 
+
+        This means that the table pages are fetched in sequential order, so the cost is: no. of data blocks retrieved * seq_page_cost
+
+        Additional CPU processing time is added to process all the tuples fetched from the data blocks. 
+            """
     else:
         print("Worst case used")
         # Use worst case formula
         table_page_fetch_cost = (table_tuples_selected * random_page_cost) + (table_tuples_selected * cpu_tuple_cost)
         correlation_explanation = f"""
-        Since correlation is {correlation}, which is less than 0.5, we assume that the relation is an unclustered relation. 
+        Since correlation of attribute {condition_array[0][0]} is {correlation}, which is between -0.5 to 0.5, we assume that the relation is an unclustered relation. 
 
         This means that the number of pages fetched in the worst case is the number of tuples to be retrieved from the data blocks: no. of tuples to retrieve * random_page_cost
 
         Additional CPU processing time is added to process all the tuples fetched from the data blocks. 
-            """
+                """
 
     print(f"Table Fetch Cost: {table_page_fetch_cost}")
 
@@ -412,12 +420,21 @@ def compute_index_only_scan_cost(connection, node):
 
         """
 
-    if correlation >= 0.5:
+    if not (node.index_cond):
+        table_page_fetch_cost = (1 - fraction_visible)(table_blocks_selected * seq_page_cost) + (table_tuples_selected * cpu_tuple_cost)
+        correlation_explanation = f"""
+        Since correlation is {correlation}, which is more than 0.5, we assume that the relation is a clustered relation. 
+
+        This means that the table pages are fetched in sequential order, so the cost is: no. of data blocks retrieved * seq_page_cost
+
+        Additional CPU processing time is added to process all the tuples fetched from the data blocks. 
+                    """
+    elif abs(correlation) >= 0.5:
         # Use best case formula
         table_page_fetch_cost = (1 - fraction_visible)(table_blocks_selected * seq_page_cost) + (
                     table_tuples_selected * cpu_tuple_cost)
         correlation_explanation = f"""
-        Since correlation is {correlation}, which is more than 0.5, we assume that the relation is a clustered relation. 
+        Since correlation is {correlation}, which is more than 0.5 or less than -0.5, we assume that the relation is a clustered relation. 
 
         For index only scan, only the visible tuples are fetched from the disk, which are indicated by the visibility map data structure kept by the database.
 
@@ -619,7 +636,7 @@ def determine_selectivity(connection, relation_name, condition_attribute, predic
             selectivity = (1 - null_frac - sum_mcf) / num_buckets
             return selectivity
         elif n_distinct < 0:
-            selectivity = abs(n_distinct) / table_tuples
+            selectivity = 1 / (abs(n_distinct) * table_tuples)
         else:
             selectivity = 1 / n_distinct
         print("n_distinct_values used")
@@ -675,6 +692,28 @@ def compute_bitmap_index_scan_cost(connection, node):
 
     print("Actual cost for node " + node.node_type + ": " + str(node.total_cost))
     print("Calculated cost for node " + node.node_type + ": " + str(node.calculated_cost))
+
+    if check_accuracy(node.calculated_cost, node.total_cost):
+        node.calculation_explain = f"""
+        The database performs a bitmap index scan on {node.relation_name}.
+ 
+        A selectivity determines how much index is scanned and tuples to be processed.
+
+        Pages and tuples are estimated, then the CPU processes all the {index_tuples_selected} tuples and I/O cost of {index_blocks_selected} pages.
+
+        Cost = node.calculated_cost = random_page_cost * index_blocks_selected + cpu_index_tuple_cost * index_tuples_selected + cpu_operator_cost * index_tuples_selected
+    """
+    else:
+        node.calculation_explain = f"""
+        The database performs a bitmap index scan on {node.relation_name}.
+ 
+        A selectivity is assumed to determine how much index is scanned and tuples to be processed. This may lead to cost discrepancy.
+
+        Pages and tuples are estimated, then the CPU processes all the {index_tuples_selected} tuples and I/O cost of {index_blocks_selected} pages.
+
+        Cost = random_page_cost * index_blocks_selected + cpu_index_tuple_cost * index_tuples_selected + cpu_operator_cost * index_tuples_selected
+
+            """
 
 
 def compute_bitmap_heap_scan_cost(connection, node):
@@ -779,14 +818,14 @@ def compute_nested_loop_cost(connection, node):
     # If either of the child nodes are Materialize nodes
     for child in node.children:
         if child.node_type == 'Materialize':
-            node.calculated_cost = outer_total_cost + inner_total_cost + (inner_rows - 1) * 0.0125 + (
+            node.calculated_cost = outer_total_cost + inner_total_cost + (outer_rows - 1) * 0.0125 + (
                         (outer_rows * inner_rows) * cpu_tuple_cost)
             print("Actual cost for node " + node.node_type + ": " + str(node.total_cost))
             print("Calculated cost for node " + node.node_type + ": " + str(node.calculated_cost))
 
             if check_accuracy(node.calculated_cost, node.total_cost):
                 node.calculation_explain = f"""
-        The database performs a nested loop join on table <relation_name> and <relation_name>.
+        The database performs a nested loop join on the output of its child nodes {node.children[0].node_type} and {node.children[1].node_type}.
 
         An assumed multiplier of 0.125 is associated with each tuple from outer relation for the materialise node call.
 
@@ -794,7 +833,7 @@ def compute_nested_loop_cost(connection, node):
                 """
             else:
                 node.calculation_explain = f"""
-        The database performs a nested loop join on table <relation_name> and <relation_name> .
+        The database performs a nested loop join on the output of its child nodes {node.children[0].node_type} and {node.children[1].node_type}.
 
         An assumed multiplier of 0.125 is associated with each tuple from outer relation for the materialise node call. This multiplier is an assumption and should be fine tuned for alignment with actual cost.
 
@@ -811,7 +850,7 @@ def compute_nested_loop_cost(connection, node):
 
     if check_accuracy(node.calculated_cost, node.total_cost):
         node.calculation_explain = f"""
-        The database performs a nested loop join on table <relation_name> and <relation_name> 
+        The database performs a nested loop join on the output of its child nodes {node.children[0].node_type} and {node.children[1].node_type}.
 
         It takes the sum of total cost of the outer node, the cumulative cost of executing the inner relation for each row in the outer relation and the total CPU cost of processing the result rows of the join.
 
@@ -819,7 +858,7 @@ def compute_nested_loop_cost(connection, node):
         """
     else:
         node.calculation_explain = f"""
-        The database performs a nested loop join on table <relation_name> and <relation_name> 
+        The database performs a nested loop join on the output of its child nodes {node.children[0].node_type} and {node.children[1].node_type}.
 
         It takes the sum of total cost of the outer node, the cumulative cost of executing the inner relation for each row in the outer relation and the total CPU cost of processing the result rows of the join.
 
@@ -856,10 +895,10 @@ def compute_hash_join_cost(connection, node):
 
     print(inner_cost)
 
+    # TODO: Confirm hash join formula
     # Calculate hash join cost
-    node.calculated_cost = inner_cost + outer_cost + (inner_rows * cpu_operator_cost) + (
-                outer_rows * cpu_operator_cost) + (cpu_operator_cost * inner_rows * outer_rows * selectivity) + (
-                                       cpu_tuple_cost * node.plan_rows)
+    node.calculated_cost = inner_cost + outer_cost + (inner_rows * cpu_operator_cost) + (inner_rows * cpu_tuple_cost) + (
+                outer_rows * cpu_operator_cost) + (cpu_operator_cost * inner_rows * outer_rows * selectivity) + (cpu_tuple_cost * node.plan_rows)
 
     print("Actual cost for node " + node.node_type + ": " + str(node.total_cost))
     print("Calculated cost for node " + node.node_type + ": " + str(node.calculated_cost))
